@@ -4,4 +4,5 @@ ultralytics==8.0.196
 numpy>=1.24.0
 Pillow==10.1.0
 torch==2.1.0
-torchvision==0.16.0 
+torchvision==0.16.0
+inotify>=0.2.10
