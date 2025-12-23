@@ -298,7 +298,8 @@ with tab1:
                         if image.mode != 'RGB':
                             image = image.convert('RGB')
                         
-                        st.image(image, use_container_width=True, caption=f"Size: {image.size}")
+                        # PERBAIKAN 1: Ganti use_container_width
+                        st.image(image, width=None, caption=f"Size: {image.size}")
                     
                     # Convert to OpenCV format SAFELY
                     try:
@@ -335,7 +336,9 @@ with tab1:
                                         else:
                                             # Convert for display
                                             result_rgb = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
-                                            st.image(result_rgb, use_container_width=True, caption="Detection Result")
+                                            
+                                            # PERBAIKAN 2: Ganti use_container_width
+                                            st.image(result_rgb, width=None, caption="Detection Result")
                                             
                                             # Show results
                                             if detections:
@@ -382,7 +385,7 @@ with tab1:
                 if st.session_state.debug_mode:
                     with st.expander("Full Error Traceback"):
                         st.code(traceback.format_exc())
-                        
+
 # ============================================
 # TAB 2: RESULTS
 # ============================================
