@@ -1,10 +1,10 @@
-import streamlit as st
+import pandas as pd
+import os
+import time
+import traceback
+from PIL import Image
 import cv2
 import numpy as np
-import time
-import tempfile
-import os
-from PIL import Image
 import io
 
 # ============================================
@@ -385,6 +385,223 @@ with tab1:
                 if st.session_state.debug_mode:
                     with st.expander("Full Error Traceback"):
                         st.code(traceback.format_exc())
+    else:  # Video Detection
+        # ============================================
+        # VIDEO DETECTION - NEW CODE
+        # ============================================
+        st.markdown("### Video Detection")
+        
+        uploaded_video = st.file_uploader(
+            "Upload a video (MP4, AVI, MOV)",
+            type=['mp4', 'avi', 'mov', 'mkv'],
+            help="Maximum file size: 200MB"
+        )
+        
+        if uploaded_video is not None:
+            # Temporary file for video processing
+            temp_video_path = f"temp_video_{int(time.time())}.mp4"
+            
+            try:
+                # SAFETY CHECK 1: Save uploaded video to temp file
+                with open(temp_video_path, "wb") as f:
+                    f.write(uploaded_video.read())
+                
+                # SAFETY CHECK 2: Verify video can be opened
+                try:
+                    cap = cv2.VideoCapture(temp_video_path)
+                    if not cap.isOpened():
+                        st.error("❌ Cannot open video file!")
+                        st.stop()
+                except Exception as cap_error:
+                    st.error(f"❌ Video open failed: {cap_error}")
+                    st.stop()
+                
+                # Get video info
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                
+                if fps <= 0:
+                    fps = 30  # Default FPS
+                
+                duration = total_frames / fps if fps > 0 else 0
+                
+                # Show video info
+                col_info1, col_info2, col_info3 = st.columns(3)
+                with col_info1:
+                    st.metric("Duration", f"{duration:.1f}s")
+                with col_info2:
+                    st.metric("Resolution", f"{width}x{height}")
+                with col_info3:
+                    st.metric("Frames", total_frames)
+                
+                # Video preview
+                st.markdown("### Video Preview")
+                st.video(uploaded_video)
+                
+                # Detection options
+                col_opt1, col_opt2 = st.columns(2)
+                with col_opt1:
+                    process_every_n = st.slider(
+                        "Process every N frames",
+                        min_value=1,
+                        max_value=30,
+                        value=5,
+                        help="Higher = faster but less accurate"
+                    )
+                with col_opt2:
+                    preview_fps = st.slider(
+                        "Preview FPS",
+                        min_value=1,
+                        max_value=30,
+                        value=10,
+                        help="FPS for result preview"
+                    )
+                
+                # Start detection button
+                if st.button("🎬 Start Video Detection", use_container_width=True, type="primary", key="detect_video"):
+                    if st.session_state.detector is None:
+                        st.error("❌ Detector not initialized!")
+                    else:
+                        # Setup progress
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        result_placeholder = st.empty()
+                        stats_placeholder = st.empty()
+                        
+                        # Prepare for processing
+                        fall_detected = False
+                        fall_count = 0
+                        processed_frames = 0
+                        detection_history = []
+                        
+                        # Temporary output file
+                        output_path = f"output_{int(time.time())}.mp4"
+                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                        out = cv2.VideoWriter(output_path, fourcc, preview_fps, (width, height))
+                        
+                        try:
+                            frame_idx = 0
+                            while cap.isOpened():
+                                ret, frame = cap.read()
+                                if not ret:
+                                    break
+                                
+                                # Process only every N frames for speed
+                                if frame_idx % process_every_n == 0:
+                                    # Update progress
+                                    progress = frame_idx / total_frames
+                                    progress_bar.progress(min(progress, 1.0))
+                                    status_text.text(f"Processing frame {frame_idx}/{total_frames}")
+                                    
+                                    # Perform detection
+                                    processed_frame, detections, alert_status = st.session_state.detector.detect(frame.copy())
+                                    processed_frames += 1
+                                    
+                                    # Check for falls
+                                    if detections:
+                                        for det in detections:
+                                            if det.get('class_name') == 'falling' and det.get('confidence', 0) > st.session_state.confidence_threshold:
+                                                fall_detected = True
+                                                fall_count += 1
+                                                detection_history.append({
+                                                    'frame': frame_idx,
+                                                    'confidence': det.get('confidence', 0),
+                                                    'time': frame_idx / fps
+                                                })
+                                    
+                                    # Write processed frame to output video
+                                    if processed_frame is not None:
+                                        # Resize if needed for consistent output
+                                        if processed_frame.shape[1] != width or processed_frame.shape[0] != height:
+                                            processed_frame = cv2.resize(processed_frame, (width, height))
+                                        out.write(processed_frame)
+                                    
+                                    # Show preview every 50 frames
+                                    if frame_idx % 50 == 0 and processed_frame is not None:
+                                        preview = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
+                                        result_placeholder.image(preview, caption=f"Frame {frame_idx}", use_column_width=True)
+                                
+                                frame_idx += 1
+                            
+                            # Release resources
+                            cap.release()
+                            out.release()
+                            
+                            # Update progress to 100%
+                            progress_bar.progress(1.0)
+                            status_text.text("✅ Processing complete!")
+                            
+                            # Show results
+                            st.markdown("## 📊 Detection Results")
+                            
+                            col_res1, col_res2, col_res3 = st.columns(3)
+                            with col_res1:
+                                st.metric("Processed Frames", processed_frames)
+                            with col_res2:
+                                st.metric("Fall Detections", fall_count)
+                            with col_res3:
+                                st.metric("Detection Rate", f"{processed_frames}/{total_frames}")
+                            
+                            # Alert if falls detected
+                            if fall_detected:
+                                st.error(f"🚨 **FALL DETECTED!** Total falls: {fall_count}")
+                                
+                                # Show fall timeline
+                                if detection_history:
+                                    st.markdown("### Fall Timeline")
+                                    timeline_data = pd.DataFrame(detection_history)
+                                    st.dataframe(timeline_data)
+                            else:
+                                st.success("✅ No falls detected")
+                            
+                            # Download processed video
+                            st.markdown("### 📥 Download Processed Video")
+                            try:
+                                with open(output_path, "rb") as f:
+                                    video_bytes = f.read()
+                                
+                                st.download_button(
+                                    label="Download Processed Video",
+                                    data=video_bytes,
+                                    file_name=f"detected_falls_{int(time.time())}.mp4",
+                                    mime="video/mp4",
+                                    use_container_width=True
+                                )
+                            except Exception as download_error:
+                                st.warning(f"Could not prepare download: {download_error}")
+                            
+                            # Cleanup temp files
+                            try:
+                                os.remove(temp_video_path)
+                                os.remove(output_path)
+                            except:
+                                pass
+                                
+                        except Exception as video_error:
+                            st.error(f"❌ Video processing failed: {str(video_error)[:200]}")
+                            if st.session_state.debug_mode:
+                                with st.expander("Video Error Details"):
+                                    st.code(traceback.format_exc())
+                            
+                            # Cleanup on error
+                            try:
+                                if 'cap' in locals():
+                                    cap.release()
+                                if 'out' in locals():
+                                    out.release()
+                                os.remove(temp_video_path)
+                                if os.path.exists(output_path):
+                                    os.remove(output_path)
+                            except:
+                                pass
+                
+            except Exception as upload_error:
+                st.error(f"❌ Video upload failed: {upload_error}")
+                # Cleanup
+                if os.path.exists(temp_video_path):
+                    os.remove(temp_video_path)
 
 # ============================================
 # TAB 2: RESULTS
