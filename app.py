@@ -6,8 +6,6 @@ import tempfile
 import os
 from PIL import Image
 import io
-import sys
-import traceback
 
 # ============================================
 # IMPORT DENGAN ERROR HANDLING YANG LEBIH BAIK
@@ -65,6 +63,80 @@ st.set_page_config(
 )
 
 # ============================================
+# CUSTOM CSS
+# ============================================
+st.markdown("""
+<style>
+    .main-title {
+        font-size: 2.5rem;
+        color: #FF4B4B;
+        text-align: center;
+        margin-bottom: 1rem;
+        font-weight: bold;
+    }
+    
+    .sub-title {
+        font-size: 1.2rem;
+        color: #666;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    
+    .alert-box {
+        background-color: #FFE5E5;
+        border-left: 5px solid #FF4B4B;
+        padding: 1rem;
+        margin: 1rem 0;
+        border-radius: 5px;
+        animation: pulse 2s infinite;
+    }
+    
+    .normal-box {
+        background-color: #E5FFE5;
+        border-left: 5px solid #4CAF50;
+        padding: 1rem;
+        margin: 1rem 0;
+        border-radius: 5px;
+    }
+    
+    .metric-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 10px;
+        padding: 1.5rem;
+        color: white;
+        text-align: center;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    
+    .metric-card h3 {
+        margin: 0;
+        font-size: 0.9rem;
+        opacity: 0.9;
+    }
+    
+    .metric-card .value {
+        font-size: 2rem;
+        font-weight: bold;
+        margin: 0.5rem 0;
+    }
+    
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.7; }
+        100% { opacity: 1; }
+    }
+    
+    .upload-area {
+        border: 2px dashed #cccccc;
+        border-radius: 10px;
+        padding: 2rem;
+        text-align: center;
+        background-color: #f9f9f9;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================
 # SESSION STATE INITIALIZATION
 # ============================================
 if 'detector' not in st.session_state:
@@ -77,6 +149,7 @@ if 'model_loaded' not in st.session_state:
     st.session_state.model_loaded = False
 if 'debug_mode' not in st.session_state:
     st.session_state.debug_mode = False  # For showing debug info
+
 
 # ============================================
 # SIDEBAR - DENGAN ERROR HANDLING
@@ -148,6 +221,16 @@ with st.sidebar:
                         st.success(f"✅ Model test passed! Detections: {len(detections)}")
                     except Exception as e:
                         st.error(f"❌ Model test failed: {e}")
+
+    
+# ============================================
+# MAIN CONTENT
+# ============================================
+st.markdown("<div class='main-title'>🚨 FALL DETECTION SYSTEM</div>", unsafe_allow_html=True)
+st.markdown("<div class='sub-title'>AI-powered fall detection for images and videos</div>", unsafe_allow_html=True)
+
+# Create tabs
+tab1, tab2, tab3 = st.tabs(["🎯 Detection", "📊 Results", "📋 Instructions"])
 
 # ============================================
 # TAB 1: DETECTION - DIPERBAIKI
@@ -299,3 +382,143 @@ with tab1:
                 if st.session_state.debug_mode:
                     with st.expander("Full Error Traceback"):
                         st.code(traceback.format_exc())
+                        
+# ============================================
+# TAB 2: RESULTS
+# ============================================
+with tab2:
+    st.subheader("📊 Detection Results")
+    
+    if st.session_state.detector:
+        stats = st.session_state.detector.get_statistics()
+        
+        # Overall metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        col1.metric("Total Frames Processed", stats['total_frames'])
+        col2.metric("Fall Detections", stats['fall_detections'])
+        col3.metric("Normal Detections", stats['normal_detections'])
+        col4.metric("Total Alerts", len(st.session_state.alert_history))
+        
+        # Alert History
+        if st.session_state.alert_history:
+            st.markdown("### 🚨 Alert History")
+            
+            for i, alert in enumerate(reversed(st.session_state.alert_history[-20:])):
+                with st.expander(f"Alert #{len(st.session_state.alert_history)-i}", expanded=(i==0)):
+                    if 'frame' in alert:
+                        st.write(f"**Frame:** {alert['frame']}")
+                    st.write(f"**Time:** {time.strftime('%H:%M:%S', time.localtime(alert['timestamp']))}")
+                    
+                    for det in alert['detections']:
+                        st.write(f"- **{det['class_name'].upper()}**: {det['confidence']:.1%}")
+        else:
+            st.info("No alerts recorded yet. Upload and process some media to see results.")
+        
+        # Detailed results
+        if st.session_state.processed_results:
+            st.markdown("### 📋 Detailed Detection Log")
+            
+            with st.expander("View all detections"):
+                for result in st.session_state.processed_results:
+                    st.markdown(f"**Frame {result['frame']}** (t={result['time']:.2f}s)")
+                    for det in result['detections']:
+                        emoji = "🔴" if det['class_name'] == 'falling' else "🟢"
+                        st.write(f"{emoji} {det['class_name']}: {det['confidence']:.1%}")
+                    st.markdown("---")
+    else:
+        st.warning("Initialize detector to view results")
+
+# ============================================
+# TAB 3: INSTRUCTIONS
+# ============================================
+with tab3:
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        ### 📋 How to Use
+        
+        **1. Prepare Your Model**
+        - Train a YOLOv8 model for fall detection
+        - Export the model as `.pt` file
+        - Upload it in the sidebar
+        
+        **2. Initialize Detector**
+        - Set confidence threshold
+        - Set alert threshold (for videos)
+        - Click "Initialize Detector"
+        
+        **3. Upload Media**
+        - Go to Detection tab
+        - Choose Image or Video
+        - Upload your file
+        
+        **4. Detect Falls**
+        - For images: Click "Detect Falls"
+        - For videos: Click "Process Video"
+        - View results in real-time
+        
+        **5. Download Results**
+        - Download processed images
+        - View detection logs
+        - Check alert history
+        """)
+    
+    with col2:
+        st.markdown("""
+        ### 🎯 Tips for Best Results
+        
+        **Model Training**
+        - Use diverse dataset
+        - Include various lighting conditions
+        - Different camera angles
+        - Multiple fall types
+        
+        **Image Quality**
+        - Good lighting
+        - Clear visibility
+        - Minimal motion blur
+        - Proper resolution (640x640+)
+        
+        **Video Processing**
+        - Process every 3-5 frames for speed
+        - Use higher frame sampling for accuracy
+        - Check preview for real-time feedback
+        
+        **Confidence Threshold**
+        - 0.3-0.5: More detections, may have false positives
+        - 0.5-0.7: Balanced (recommended)
+        - 0.7-0.9: Fewer detections, high precision
+        """)
+    
+    st.markdown("---")
+    
+    st.markdown("""
+    ### 📦 Model Requirements
+    
+    Your model should:
+    - Be trained with YOLOv8
+    - Have 2 classes: 'falling' and 'normal'
+    - Be exported as `.pt` format
+    - Support 640x640 input size (recommended)
+    
+    ### 🌐 Deployment
+    
+    This app is optimized for **Streamlit Cloud**:
+    - No webcam/camera access needed
+    - Works with uploaded files only
+    - Processes images and videos
+    - Stores results in session
+    """)
+
+# ============================================
+# FOOTER
+# ============================================
+st.markdown("---")
+st.markdown("""
+<div style="text-align: center; color: #666; padding: 20px;">
+    <p><strong>Fall Detection System</strong> • Powered by YOLOv8 & Streamlit</p>
+    <p style="font-size: 0.85rem;">Upload images or videos for automatic fall detection</p>
+</div>
+""", unsafe_allow_html=True)
