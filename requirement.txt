@@ -1,8 +1,8 @@
-# requirements.txt - FIXED FOR STREAMLIT CLOUD
+# requirements.txt - FIXED VERSION
 streamlit==1.28.0
-opencv-python-headless==4.8.1.78  # ⚠️ INI YANG BENAR!
+opencv-python-headless==4.8.1.78
 ultralytics==8.0.196
 numpy==1.24.0
 Pillow==10.0.0
-torch==2.0.0
-torchvision==0.15.0
+torch==2.0.1 --index-url https://download.pytorch.org/whl/cpu
+torchvision==0.15.2
