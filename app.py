@@ -112,79 +112,65 @@ if 'processed_results' not in st.session_state:
     st.session_state.processed_results = []
 
 # ============================================
-# SIDEBAR
+# SIDEBAR - SIMPLE VERSION
 # ============================================
 with st.sidebar:
     st.markdown("<div class='main-title'>⚙️ SETTINGS</div>", unsafe_allow_html=True)
     
-    # Model Configuration
-    st.subheader("🤖 Model Configuration")
+    # Model Status
+    st.subheader("🤖 Model Status")
     
-    # Model file uploader
-    model_file = st.file_uploader(
-        "Upload Model (.pt file)", 
-        type=['pt'],
-        help="Upload your trained YOLOv8 model (.pt file)"
-    )
+    model_path = "best_fall_model.pt"
     
-    if model_file is not None:
-        # Save uploaded model temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pt') as tmp_model:
-            tmp_model.write(model_file.read())
-            model_path = tmp_model.name
-    else:
-        # Default model path (if model is in repo)
-        model_path = "best_fall_model.pt"
-        if not os.path.exists(model_path):
-            st.warning("⚠️ No model found. Please upload a model file above.")
-            model_path = None
-    
-    confidence = st.slider("Confidence Threshold", 0.1, 1.0, 0.5, 0.05, 
-                          help="Higher = more strict detection")
-    
-    # Alert Settings
-    st.subheader("🚨 Alert Settings")
-    alert_threshold = st.slider("Alert Threshold (for video)", 1, 20, 5, 
-                               help="Consecutive fall frames to trigger alert")
-    
-    st.markdown("---")
-    
-    # Initialize Button
-    if st.button("🚀 Initialize Detector", type="primary", use_container_width=True):
-        if model_path and os.path.exists(model_path):
+    if os.path.exists(model_path):
+        file_size = os.path.getsize(model_path) / (1024*1024)
+        
+        status_col1, status_col2 = st.columns(2)
+        with status_col1:
+            st.success("✅ Ready")
+        with status_col2:
+            st.write(f"{file_size:.1f} MB")
+        
+        # Confidence Slider
+        confidence = st.slider("Confidence Threshold", 0.1, 1.0, 0.5, 0.05)
+        
+        # Load Model Button
+        if st.button("🚀 Load AI Model", type="primary", use_container_width=True):
             try:
-                with st.spinner("Loading model..."):
+                with st.spinner("Loading fall detection model..."):
+                    # Initialize detector
                     st.session_state.detector = FallDetector(
                         model_path=model_path,
                         conf_threshold=confidence
                     )
-                    st.session_state.detector.alert_threshold = alert_threshold
-                st.success("✅ Detector initialized successfully!")
+                    st.session_state.model_loaded = True
+                
+                st.success("✅ AI Model Loaded!")
+                st.info("Now go to 'Detection' tab to analyze images/videos")
+                
             except Exception as e:
-                st.error(f"❌ Failed to initialize: {str(e)}")
-        else:
-            st.error("❌ Please upload a model file first")
+                st.error(f"Model loading failed: {str(e)}")
+    else:
+        st.error("❌ Model not found!")
+        st.info(f"Please place 'best_fall_model.pt' in:\n`{os.getcwd()}`")
     
-    # Reset Button
-    if st.button("🔄 Reset All", type="secondary", use_container_width=True):
-        if st.session_state.detector:
-            st.session_state.detector.reset_statistics()
-        st.session_state.alert_history = []
-        st.session_state.processed_results = []
-        st.success("✅ Reset complete!")
-        st.rerun()
-    
-    # Info
     st.markdown("---")
-    st.info("""
-    **How to use:**
-    1. Upload your model (.pt)
-    2. Click Initialize
-    3. Go to Detection tab
-    4. Upload image/video
-    5. View results!
-    """)
-
+    
+    # Check if model is loaded
+    if 'model_loaded' in st.session_state and st.session_state.model_loaded:
+        st.subheader("📊 Current Session")
+        st.write(f"**Model:** {os.path.basename(model_path)}")
+        st.write(f"**Confidence:** {confidence}")
+        
+        if st.button("🔄 Reset Session", type="secondary"):
+            for key in ['detector', 'model_loaded']:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.rerun()
+    
+    st.markdown("---")
+    st.caption("Fall Detection AI | Uses pre-trained model")
+    
 # ============================================
 # MAIN CONTENT
 # ============================================
