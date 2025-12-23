@@ -1,24 +1,29 @@
+# app.py - DEPLOY READY VERSION
 import streamlit as st
-import cv2
-import numpy as np
-import time
-import tempfile
+import sys
 import os
+import tempfile
+import time
 from PIL import Image
 
-# Import dengan error handling
+# ============================================
+# IMPORT DENGAN ERROR HANDLING UNTUK CLOUD
+# ============================================
 try:
-    from utils.fall_detector import FallDetector, DroidCamStream
+    import cv2
+    import numpy as np
+    CV2_AVAILABLE = True
 except ImportError as e:
-    st.error(f"Error importing modules: {e}")
-    st.stop()
+    CV2_AVAILABLE = False
+    import numpy as np
+    st.warning(f"⚠️ OpenCV not available: {e}. Some features disabled.")
 
 # ============================================
-# PAGE CONFIGURATION
+# PAGE CONFIGURATION (HARUS DI AWAL)
 # ============================================
 st.set_page_config(
-    page_title="Fall Detection with DroidCam",
-    page_icon="📱",
+    page_title="Fall Detection System",
+    page_icon="🚨",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -60,26 +65,6 @@ st.markdown("""
         border-radius: 5px;
     }
     
-    .status-box {
-        padding: 0.5rem 1rem;
-        border-radius: 5px;
-        font-weight: bold;
-        text-align: center;
-        margin: 0.5rem 0;
-    }
-    
-    .status-connected {
-        background-color: #d4edda;
-        color: #155724;
-        border: 2px solid #c3e6cb;
-    }
-    
-    .status-disconnected {
-        background-color: #f8d7da;
-        color: #721c24;
-        border: 2px solid #f5c6cb;
-    }
-    
     .metric-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         border-radius: 10px;
@@ -87,18 +72,6 @@ st.markdown("""
         color: white;
         text-align: center;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-    
-    .metric-card h3 {
-        margin: 0;
-        font-size: 0.9rem;
-        opacity: 0.9;
-    }
-    
-    .metric-card .value {
-        font-size: 2rem;
-        font-weight: bold;
-        margin: 0.5rem 0;
     }
     
     @keyframes pulse {
@@ -110,6 +83,25 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================
+# DETECT CLOUD ENVIRONMENT
+# ============================================
+IS_CLOUD = os.path.exists('/mount') or 'STREAMLIT_SHARING_MODE' in os.environ
+
+# ============================================
+# IMPORT FALL DETECTOR DENGAN ERROR HANDLING
+# ============================================
+FallDetector = None
+DroidCamStream = None
+
+if CV2_AVAILABLE:
+    try:
+        from utils.fall_detector import FallDetector, DroidCamStream
+    except ImportError as e:
+        st.warning(f"⚠️ Fall detector module not available: {e}")
+else:
+    st.info("ℹ️ Running in limited mode - OpenCV required for full functionality")
+
+# ============================================
 # SESSION STATE INITIALIZATION
 # ============================================
 if 'detector' not in st.session_state:
@@ -118,157 +110,63 @@ if 'detector' not in st.session_state:
 if 'run_webcam' not in st.session_state:
     st.session_state.run_webcam = False
 
-if 'droidcam_ip' not in st.session_state:
-    st.session_state.droidcam_ip = "192.168.1.5"
-
-if 'droidcam_port' not in st.session_state:
-    st.session_state.droidcam_port = 4747
-
-if 'camera_mode' not in st.session_state:
-    st.session_state.camera_mode = "droidcam"
-
 if 'alert_history' not in st.session_state:
     st.session_state.alert_history = []
 
 if 'last_detection' not in st.session_state:
     st.session_state.last_detection = None
 
-if 'camera_index' not in st.session_state:
-    st.session_state.camera_index = 0
+# ============================================
+# MAIN TITLE
+# ============================================
+st.markdown("<div class='main-title'>🚨 AI FALL DETECTION SYSTEM</div>", unsafe_allow_html=True)
+st.markdown("<div class='sub-title'>University Final Project | Powered by YOLOv8</div>", unsafe_allow_html=True)
+
+if IS_CLOUD:
+    st.success("🌐 **CLOUD MODE ACTIVE** - File Upload Available")
+    st.info("""
+    **Features Available in Cloud:**
+    - 📹 Upload video files (MP4, AVI, MOV)
+    - 📸 Upload images for testing
+    - 📊 View analytics and results
+    - 🎯 Test with sample data
+    
+    **Note:** Live camera features require local installation.
+    """)
 
 # ============================================
-# HELPER FUNCTIONS
-# ============================================
-def test_droidcam_connection(ip, port):
-    """Test DroidCam connection"""
-    try:
-        url = f"http://{ip}:{port}/video"
-        test_cap = cv2.VideoCapture(url)
-        
-        if not test_cap.isOpened():
-            return False, "Cannot connect to DroidCam URL", None
-        
-        ret, frame = test_cap.read()
-        test_cap.release()
-        
-        if not ret or frame is None:
-            return False, "Connected but cannot read frame", None
-        
-        return True, "Connection successful", frame
-        
-    except Exception as e:
-        return False, f"Connection error: {str(e)}", None
-
-# ============================================
-# SIDEBAR
+# SIDEBAR - CLOUD OPTIMIZED
 # ============================================
 with st.sidebar:
-    st.markdown("<div class='main-title'>⚙️ SETTINGS</div>", unsafe_allow_html=True)
+    st.markdown("### ⚙️ SETTINGS")
     
     # Model Configuration
     st.subheader("🤖 Model Configuration")
-    model_path = st.text_input("Model Path", "best_fall_model.pt", 
-                               help="Path to your trained YOLO model")
-    confidence = st.slider("Confidence Threshold", 0.1, 1.0, 0.5, 0.05, 
-                          help="Higher = more strict detection")
+    
+    # Default model paths
+    default_model = "best_fall_model.onnx" if os.path.exists("best_fall_model.onnx") else "best_fall_model.pt"
+    
+    model_path = st.text_input("Model Path", default_model, 
+                               help="Path to your trained model")
+    
+    confidence = st.slider("Confidence Threshold", 0.1, 1.0, 0.4, 0.05)
     
     # Alert Settings
     st.subheader("🚨 Alert Settings")
-    alert_threshold = st.slider("Alert Threshold", 1, 20, 5, 
-                               help="Consecutive fall frames to trigger alert")
+    alert_threshold = st.slider("Alert Threshold", 1, 20, 5)
     
-    # Camera Settings
-    st.subheader("📷 Camera Settings")
-    camera_mode = st.radio(
-        "Select Camera Source:",
-        ["📱 DroidCam (WiFi)", "💻 Webcam/DroidCam USB", "📹 Video File"],
-        index=0
-    )
+    # Camera/File Settings
+    st.subheader("📷 Input Source")
     
-    if camera_mode == "📱 DroidCam (WiFi)":
-        st.session_state.camera_mode = "droidcam"
-        
-        # DroidCam Configuration
-        st.markdown("**DroidCam WiFi Configuration**")
-        
-        col_ip, col_port = st.columns([3, 1])
-        with col_ip:
-            droidcam_ip = st.text_input(
-                "IP Address",
-                value=st.session_state.droidcam_ip,
-                help="Example: 192.168.1.5"
-            )
-        
-        with col_port:
-            droidcam_port = st.number_input(
-                "Port",
-                min_value=1024,
-                max_value=65535,
-                value=st.session_state.droidcam_port,
-                help="Default: 4747"
-            )
-        
-        st.session_state.droidcam_ip = droidcam_ip
-        st.session_state.droidcam_port = droidcam_port
-        
-        # Test Connection Button
-        if st.button("🔗 Test Connection", type="secondary", use_container_width=True):
-            with st.spinner("Testing connection..."):
-                success, message, frame = test_droidcam_connection(
-                    st.session_state.droidcam_ip, 
-                    st.session_state.droidcam_port
-                )
-                
-                if success:
-                    st.success(f"✅ {message}")
-                    if frame is not None:
-                        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                        st.image(frame_rgb, caption="DroidCam Preview", use_container_width=True)
-                else:
-                    st.error(f"❌ {message}")
-        
-        # Quick Setup Guide
-        with st.expander("📱 DroidCam Setup Guide"):
-            st.markdown("""
-            1. Install DroidCam on phone
-            2. Connect phone to same WiFi
-            3. Open DroidCam app
-            4. Note IP address shown
-            5. Enter IP here and test
-            """)
-    
-    elif camera_mode == "💻 Webcam/DroidCam USB":
-        st.session_state.camera_mode = "webcam"
-        st.info("Using camera device")
-        
-        # Camera Index Selection
-        st.markdown("**Camera Device Index**")
-        camera_index = st.number_input(
-            "Camera Index",
-            min_value=0,
-            max_value=10,
-            value=st.session_state.camera_index,
-            help="Try 0 for built-in webcam, 1 or 2 for DroidCam USB"
-        )
-        st.session_state.camera_index = camera_index
-        
-        st.markdown("""
-        **Common indexes:**
-        - `0` = Built-in webcam
-        - `1` = DroidCam USB (usually)
-        - `2` = External camera
-        """)
-    
+    if IS_CLOUD:
+        input_mode = st.radio("Select Input:", ["📹 Upload Video File", "📸 Upload Image"])
     else:
-        st.session_state.camera_mode = "video"
-        uploaded_video = st.file_uploader("Upload Video", type=['mp4', 'avi', 'mov'])
-        if uploaded_video:
-            st.session_state.uploaded_video = uploaded_video
+        input_mode = st.radio("Select Input:", 
+                            ["📹 Upload Video File", "📸 Upload Image", "📱 DroidCam", "💻 Webcam"])
     
-    # Performance Settings
+    # Performance
     st.subheader("⚡ Performance")
-    frame_skip = st.slider("Frame Skip", 0, 5, 0, 
-                          help="Skip frames for better performance (0 = no skip)")
+    frame_skip = st.slider("Frame Skip", 0, 5, 0)
     
     st.markdown("---")
     
@@ -277,20 +175,23 @@ with st.sidebar:
     
     with col1:
         if st.button("🚀 Initialize", type="primary", use_container_width=True):
-            try:
-                # Check if model exists
-                if not os.path.exists(model_path):
-                    st.error(f"❌ Model not found: {model_path}")
-                else:
-                    st.session_state.detector = FallDetector(
-                        model_path=model_path,
-                        conf_threshold=confidence
-                    )
-                    st.session_state.detector.alert_threshold = alert_threshold
-                    st.success("✅ Detector initialized!")
-                    
-            except Exception as e:
-                st.error(f"❌ Initialization failed: {str(e)}")
+            if not CV2_AVAILABLE:
+                st.error("❌ OpenCV not available. Please check requirements.")
+            elif FallDetector is None:
+                st.error("❌ Fall detector module not found.")
+            else:
+                try:
+                    if not os.path.exists(model_path):
+                        st.error(f"❌ Model not found: {model_path}")
+                    else:
+                        st.session_state.detector = FallDetector(
+                            model_path=model_path,
+                            conf_threshold=confidence
+                        )
+                        st.session_state.detector.alert_threshold = alert_threshold
+                        st.success("✅ Detector initialized!")
+                except Exception as e:
+                    st.error(f"❌ Initialization failed: {str(e)}")
     
     with col2:
         if st.button("🔄 Reset", type="secondary", use_container_width=True):
@@ -300,384 +201,337 @@ with st.sidebar:
             st.session_state.last_detection = None
             st.session_state.run_webcam = False
             st.success("✅ Reset complete!")
+    
+    # Cloud info
+    if IS_CLOUD:
+        st.markdown("---")
+        st.info("""
+        **Cloud Limitations:**
+        - Max file size: 200MB
+        - Processing time: ~30s per minute of video
+        - Live camera: Not available
+        """)
 
 # ============================================
-# MAIN CONTENT
+# MAIN CONTENT AREA
 # ============================================
-st.markdown("<div class='main-title'>📱 FALL DETECTION SYSTEM</div>", unsafe_allow_html=True)
-st.markdown("<div class='sub-title'>Real-time fall detection using DroidCam and YOLOv8</div>", unsafe_allow_html=True)
+tab1, tab2, tab3 = st.tabs(["🎯 Detection", "📊 Analytics", "📖 Guide"])
 
-# Create tabs
-tab1, tab2, tab3 = st.tabs(["🎥 Live Detection", "📊 Dashboard", "📋 Instructions"])
-
-# ============================================
-# TAB 1: LIVE DETECTION
-# ============================================
+# TAB 1: DETECTION
 with tab1:
-    col1, col2 = st.columns([3, 1])
+    st.subheader("Detection Interface")
     
-    with col1:
-        st.subheader("Live Video Feed")
+    if not CV2_AVAILABLE:
+        st.error("""
+        ⚠️ **OpenCV not available!**
         
-        # Check if detector initialized
-        if not st.session_state.detector:
-            st.warning("⚠️ Please initialize the detector from sidebar first!")
-            st.info("👈 Click '🚀 Initialize' button in the sidebar")
-            st.stop()
+        For cloud deployment, please ensure:
+        1. `opencv-python-headless` is in requirements.txt
+        2. Model file exists in repository
+        3. All dependencies are installed
         
-        # Control buttons
-        col_start, col_stop = st.columns(2)
+        **Current mode:** Limited functionality
+        """)
+    
+    # File upload section
+    uploaded_file = None
+    
+    if "Upload Video" in input_mode:
+        uploaded_file = st.file_uploader("Upload Video File", 
+                                       type=['mp4', 'avi', 'mov'],
+                                       help="Max 200MB")
+    elif "Upload Image" in input_mode:
+        uploaded_file = st.file_uploader("Upload Image", 
+                                       type=['jpg', 'jpeg', 'png'])
+    
+    if uploaded_file:
+        # Save to temp file
+        file_ext = os.path.splitext(uploaded_file.name)[1].lower()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+            tmp.write(uploaded_file.read())
+            file_path = tmp.name
         
-        with col_start:
-            if st.button("▶️ Start Detection", type="primary", use_container_width=True):
-                st.session_state.run_webcam = True
-        
-        with col_stop:
-            if st.button("⏹️ Stop Detection", type="secondary", use_container_width=True):
-                st.session_state.run_webcam = False
-        
-        # Placeholders
-        frame_placeholder = st.empty()
-        alert_placeholder = st.empty()
-        status_placeholder = st.empty()
-        stats_placeholder = st.empty()
-        
-        # ============================================
-        # MAIN DETECTION LOOP
-        # ============================================
-        if st.session_state.run_webcam:
-            # Initialize camera
-            cap = None
+        # Display file
+        if uploaded_file.type.startswith('video'):
+            st.video(file_path)
             
-            try:
-                if st.session_state.camera_mode == "droidcam":
-                    # DroidCam WiFi mode
-                    url = f"http://{st.session_state.droidcam_ip}:{st.session_state.droidcam_port}/video"
-                    cap = cv2.VideoCapture(url)
-                    status_placeholder.info(f"📱 Connecting to DroidCam: {st.session_state.droidcam_ip}:{st.session_state.droidcam_port}")
-                
-                elif st.session_state.camera_mode == "webcam":
-                    # Webcam/DroidCam USB mode
-                    cap = cv2.VideoCapture(st.session_state.camera_index)
-                    status_placeholder.info(f"💻 Opening camera index: {st.session_state.camera_index}")
-                
+            if st.button("🎬 Analyze Video", type="primary"):
+                if not st.session_state.detector:
+                    st.warning("Please initialize detector first!")
+                elif not CV2_AVAILABLE:
+                    st.error("OpenCV not available for video processing")
                 else:
-                    # Video file mode
-                    if 'uploaded_video' in st.session_state:
-                        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp:
-                            tmp.write(st.session_state.uploaded_video.read())
-                            video_path = tmp.name
-                        cap = cv2.VideoCapture(video_path)
-                        status_placeholder.info("📹 Loading video file...")
-                
-                # Check if camera opened
-                if cap is None or not cap.isOpened():
-                    status_placeholder.error(f"""
-                    ❌ Cannot open camera!
-                    
-                    **Troubleshooting:**
-                    - DroidCam WiFi: Check IP and port
-                    - Webcam/USB: Try different camera index (0, 1, 2)
-                    - Make sure DroidCam app is running
-                    - Check if another app is using the camera
-                    """)
-                    st.session_state.run_webcam = False
-                    st.stop()
-                
-                status_placeholder.success("✅ Camera connected successfully!")
-                
-                # Frame counter for skipping
-                frame_count = 0
-                
-                # Main loop - THIS IS THE KEY PART
-                while st.session_state.run_webcam:
-                    ret, frame = cap.read()
-                    
-                    if not ret:
-                        if st.session_state.camera_mode == "video":
-                            status_placeholder.info("📹 Video ended")
-                            st.session_state.run_webcam = False
-                            break
+                    with st.spinner("Analyzing video..."):
+                        # Initialize video capture
+                        cap = cv2.VideoCapture(file_path)
+                        
+                        if not cap.isOpened():
+                            st.error("Cannot open video file")
                         else:
-                            status_placeholder.warning("⚠️ Cannot read frame, retrying...")
-                            time.sleep(0.5)
-                            continue
-                    
-                    # Skip frames if needed
-                    frame_count += 1
-                    if frame_skip > 0 and frame_count % (frame_skip + 1) != 0:
-                        continue
-                    
-                    # Flip frame for webcam (mirror effect)
-                    if st.session_state.camera_mode == "webcam":
-                        frame = cv2.flip(frame, 1)
-                    
-                    # Detect falls
-                    try:
-                        processed_frame, detections, alert_status = st.session_state.detector.detect(frame)
-                        
-                        # Store detection
-                        st.session_state.last_detection = {
-                            'time': time.strftime("%H:%M:%S"),
-                            'detections': detections,
-                            'alert': alert_status,
-                            'frame': processed_frame.copy()
-                        }
-                        
-                        # Record alert
-                        if alert_status:
-                            st.session_state.alert_history.append({
-                                'timestamp': time.time(),
-                                'detections': detections
-                            })
-                        
-                        # Display frame
-                        display_frame = cv2.cvtColor(processed_frame, cv2.COLOR_BGR2RGB)
-                        frame_placeholder.image(display_frame, channels="RGB", use_container_width=True)
-                        
-                        # Display alert
-                        if alert_status:
-                            alert_duration = time.time() - st.session_state.detector.alert_start_time
-                            alert_placeholder.markdown(f"""
-                            <div class="alert-box">
-                                <h2>🚨 FALL DETECTED!</h2>
-                                <p style="font-size: 1.2rem;">Active for {alert_duration:.1f} seconds</p>
-                                <p><strong>⚠️ IMMEDIATE ATTENTION REQUIRED!</strong></p>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        else:
-                            if detections:
-                                det_text = " | ".join([
-                                    f"**{d['class_name'].upper()}** ({d['confidence']:.0%})"
-                                    for d in detections
-                                ])
-                                alert_placeholder.markdown(f"""
-                                <div class="normal-box">
-                                    <h3>✅ Monitoring Normal</h3>
-                                    <p>{det_text}</p>
-                                </div>
-                                """, unsafe_allow_html=True)
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+                            results = []
+                            
+                            # Get video info
+                            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                            fps = cap.get(cv2.CAP_PROP_FPS)
+                            
+                            # Process video
+                            frame_count = 0
+                            alert_count = 0
+                            
+                            while True:
+                                ret, frame = cap.read()
+                                if not ret:
+                                    break
+                                
+                                # Skip frames if needed
+                                if frame_skip > 0 and frame_count % (frame_skip + 1) != 0:
+                                    frame_count += 1
+                                    continue
+                                
+                                # Process frame
+                                processed, detections, alert = st.session_state.detector.detect(frame)
+                                
+                                if alert:
+                                    alert_count += 1
+                                
+                                # Update progress
+                                progress = (frame_count + 1) / total_frames
+                                progress_bar.progress(progress)
+                                status_text.text(f"Processing frame {frame_count + 1}/{total_frames}")
+                                
+                                frame_count += 1
+                                if frame_count >= 100:  # Limit for demo
+                                    break
+                            
+                            cap.release()
+                            
+                            # Show results
+                            st.success(f"✅ Analysis complete! Processed {frame_count} frames")
+                            
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("Frames Analyzed", frame_count)
+                            with col2:
+                                st.metric("Falls Detected", alert_count)
+                            with col3:
+                                st.metric("Processing Time", f"{frame_count/fps:.1f}s")
+                            
+                            if alert_count > 0:
+                                st.error(f"🚨 **ALERT:** {alert_count} potential falls detected!")
                             else:
-                                alert_placeholder.markdown("""
-                                <div class="normal-box">
-                                    <h3>👁️ No Person Detected</h3>
-                                    <p>Make sure person is visible in frame</p>
-                                </div>
-                                """, unsafe_allow_html=True)
-                        
-                        # Show quick stats
-                        stats = st.session_state.detector.get_statistics()
-                        stats_placeholder.text(f"FPS: {stats['fps']:.1f} | Frames: {stats['total_frames']} | Falls: {stats['fall_detections']}")
-                        
-                    except Exception as e:
-                        alert_placeholder.error(f"Detection error: {str(e)}")
-                        break
-                    
-                    # Small delay to prevent overwhelming
-                    time.sleep(0.01)
-                
-                # Cleanup
-                if cap is not None:
-                    cap.release()
-                
-                if st.session_state.camera_mode == "video" and 'video_path' in locals():
-                    try:
-                        os.unlink(video_path)
-                    except:
-                        pass
-                
-                status_placeholder.info("⏹️ Detection stopped")
-            
-            except Exception as e:
-                status_placeholder.error(f"❌ Error: {str(e)}")
-                st.session_state.run_webcam = False
-                if cap is not None:
-                    cap.release()
+                                st.success("✅ No falls detected")
         
-        else:
-            # Not running
-            frame_placeholder.info("👆 Click '▶️ Start Detection' to begin monitoring")
-    
-    with col2:
-        st.subheader("📈 Statistics")
-        
-        if st.session_state.detector:
-            # Create a placeholder for live stats
-            stats_container = st.container()
+        else:  # Image file
+            img = Image.open(file_path)
+            st.image(img, caption="Uploaded Image", use_container_width=True)
             
-            with stats_container:
-                stats = st.session_state.detector.get_statistics()
-                
-                # FPS
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3>FPS</h3>
-                    <div class="value">{stats['fps']:.1f}</div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.markdown("<br>", unsafe_allow_html=True)
-                
-                # Fall Rate
-                fall_rate = stats['fall_ratio'] * 100
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3>Fall Rate</h3>
-                    <div class="value">{fall_rate:.1f}%</div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.markdown("<br>", unsafe_allow_html=True)
-                
-                # Other metrics
-                st.metric("Total Frames", stats['total_frames'])
-                st.metric("Fall Detections", stats['fall_detections'])
-                st.metric("Normal", stats['normal_detections'])
-                
-                # Alert status
-                if stats['alert_active']:
-                    st.error(f"🚨 Alert Active ({stats['alert_duration']:.1f}s)")
+            if st.button("🔍 Detect Falls", type="primary"):
+                if not st.session_state.detector:
+                    st.warning("Please initialize detector first!")
+                elif not CV2_AVAILABLE:
+                    st.error("OpenCV not available for image processing")
                 else:
-                    st.success("✅ No Active Alerts")
-                
-                # Last detection
-                if st.session_state.last_detection:
-                    with st.expander("Last Detection"):
-                        st.write(f"Time: {st.session_state.last_detection['time']}")
-                        for det in st.session_state.last_detection['detections']:
-                            emoji = "🔴" if det['class_name'] == 'falling' else "🟢"
-                            st.write(f"{emoji} {det['class_name']}: {det['confidence']:.0%}")
+                    with st.spinner("Detecting..."):
+                        # Convert PIL to OpenCV
+                        img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                        
+                        # Detect
+                        processed_img, detections, alert = st.session_state.detector.detect(img_cv)
+                        
+                        # Convert back to RGB for display
+                        result_rgb = cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB)
+                        
+                        # Show results
+                        st.subheader("Detection Results")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.image(result_rgb, caption="Processed Image", use_container_width=True)
+                        
+                        with col2:
+                            if detections:
+                                st.success(f"✅ {len(detections)} object(s) detected")
+                                for det in detections:
+                                    status = "🔴 FALLING" if det['class_name'] == 'falling' else "🟢 NORMAL"
+                                    st.write(f"**{status}**: {det['confidence']:.1%} confidence")
+                                
+                                if alert:
+                                    st.error("🚨 **FALL DETECTED!** Immediate attention required!")
+                                else:
+                                    st.success("✅ Situation normal - No falls detected")
+                            else:
+                                st.warning("⚠️ No objects detected")
+        
+        # Cleanup
+        os.unlink(file_path)
+    
+    elif not IS_CLOUD and "DroidCam" in input_mode:
+        # DroidCam interface (local only)
+        st.info("📱 DroidCam Mode - Requires local installation")
+        
+        col_ip, col_port = st.columns(2)
+        with col_ip:
+            droidcam_ip = st.text_input("IP Address", "192.168.1.5")
+        with col_port:
+            droidcam_port = st.number_input("Port", 4747)
+        
+        if st.button("Connect DroidCam"):
+            if not CV2_AVAILABLE:
+                st.error("OpenCV not available")
+            else:
+                try:
+                    url = f"http://{droidcam_ip}:{droidcam_port}/video"
+                    cap = cv2.VideoCapture(url)
+                    
+                    if cap.isOpened():
+                        st.success("✅ DroidCam connected!")
+                        ret, frame = cap.read()
+                        if ret:
+                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            st.image(frame_rgb, caption="DroidCam Preview")
+                        cap.release()
+                    else:
+                        st.error("❌ Cannot connect to DroidCam")
+                except Exception as e:
+                    st.error(f"Connection error: {e}")
+    
+    elif not IS_CLOUD and "Webcam" in input_mode:
+        # Webcam interface (local only)
+        st.info("💻 Webcam Mode - Requires local installation")
+        
+        if st.button("Start Webcam"):
+            if not CV2_AVAILABLE:
+                st.error("OpenCV not available")
+            else:
+                st.warning("Webcam feature requires local execution")
 
-# ============================================
-# TAB 2: DASHBOARD
-# ============================================
+# TAB 2: ANALYTICS
 with tab2:
-    st.subheader("📊 Dashboard")
+    st.subheader("Analytics Dashboard")
     
     if st.session_state.detector:
         stats = st.session_state.detector.get_statistics()
         
-        # Metrics
+        # Metrics cards
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            uptime = stats['total_frames'] / max(stats['fps'], 1)
-            st.metric("Uptime", f"{uptime:.1f}s")
+            st.markdown("""
+            <div class="metric-card">
+                <h3>Total Frames</h3>
+                <div class="value">{}</div>
+            </div>
+            """.format(stats['total_frames']), unsafe_allow_html=True)
         
         with col2:
-            accuracy = ((stats['fall_detections'] + stats['normal_detections']) / 
-                       max(stats['total_frames'], 1) * 100)
-            st.metric("Detection Rate", f"{accuracy:.1f}%")
+            st.markdown("""
+            <div class="metric-card">
+                <h3>Falls Detected</h3>
+                <div class="value">{}</div>
+            </div>
+            """.format(stats['fall_detections']), unsafe_allow_html=True)
         
         with col3:
-            st.metric("Total Alerts", len(st.session_state.alert_history))
+            fall_rate = stats['fall_ratio'] * 100
+            st.markdown("""
+            <div class="metric-card">
+                <h3>Fall Rate</h3>
+                <div class="value">{:.1f}%</div>
+            </div>
+            """.format(fall_rate), unsafe_allow_html=True)
         
         with col4:
-            st.metric("Avg FPS", f"{stats['fps']:.1f}")
+            st.markdown("""
+            <div class="metric-card">
+                <h3>FPS</h3>
+                <div class="value">{:.1f}</div>
+            </div>
+            """.format(stats['fps']), unsafe_allow_html=True)
         
-        # Alert History
+        # Alert history
         st.subheader("🚨 Alert History")
         if st.session_state.alert_history:
-            for i, alert in enumerate(reversed(st.session_state.alert_history[-10:])):
-                alert_time = time.strftime("%H:%M:%S", 
-                                          time.localtime(alert['timestamp']))
-                time_ago = time.time() - alert['timestamp']
-                
-                with st.expander(f"🚨 Alert #{len(st.session_state.alert_history)-i} at {alert_time} ({time_ago:.0f}s ago)", expanded=(i==0)):
+            for i, alert in enumerate(reversed(st.session_state.alert_history[-5:])):
+                with st.expander(f"Alert #{len(st.session_state.alert_history)-i}", expanded=(i==0)):
+                    st.write(f"Time: {time.ctime(alert['timestamp'])}")
                     for det in alert['detections']:
-                        st.write(f"- **{det['class_name'].upper()}**: {det['confidence']:.1%}")
+                        st.write(f"- {det['class_name'].upper()}: {det['confidence']:.1%}")
         else:
             st.info("No alerts recorded yet")
     else:
-        st.warning("Initialize detector to see dashboard")
+        st.warning("Initialize detector to see analytics")
 
-# ============================================
-# TAB 3: INSTRUCTIONS
-# ============================================
+# TAB 3: GUIDE
 with tab3:
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("📋 Setup Guide")
-        st.markdown("""
-        ### 🚀 Quick Start:
+        st.subheader("📋 Quick Start")
         
-        **Option 1: DroidCam WiFi**
-        1. Install DroidCam app on phone
-        2. Connect phone & PC to same WiFi
-        3. Open DroidCam, note IP address
-        4. Enter IP in sidebar, test connection
-        5. Initialize detector
-        6. Start detection
-        
-        **Option 2: DroidCam USB**
-        1. Install DroidCam client on PC
-        2. Connect phone via USB
-        3. Select "Webcam/DroidCam USB" mode
-        4. Try camera index 1 or 2
-        5. Initialize detector
-        6. Start detection
-        
-        **Option 3: Built-in Webcam**
-        1. Select "Webcam/DroidCam USB"
-        2. Use camera index 0
-        3. Initialize detector
-        4. Start detection
-        """)
+        if IS_CLOUD:
+            st.markdown("""
+            **For Cloud Usage:**
+            1. Initialize detector from sidebar
+            2. Upload video or image file
+            3. Click "Analyze" button
+            4. View results and analytics
+            
+            **Supported Formats:**
+            - Videos: MP4, AVI, MOV
+            - Images: JPG, PNG
+            - Max size: 200MB
+            """)
+        else:
+            st.markdown("""
+            **For Local Usage:**
+            1. Install dependencies
+            2. Initialize detector
+            3. Select input source
+            4. Start detection
+            
+            **Input Options:**
+            - DroidCam (WiFi/USB)
+            - Webcam
+            - Video files
+            - Image files
+            """)
     
     with col2:
         st.subheader("🔧 Troubleshooting")
         st.markdown("""
-        ### Common Issues:
+        **Common Issues:**
         
-        **"Cannot open camera"**
-        - ✅ For WiFi: Check IP/port, same network
-        - ✅ For USB: Try index 0, 1, or 2
-        - ✅ Close other apps using camera
-        - ✅ Restart DroidCam app
+        **"Module not found"**
+        - Check requirements.txt
+        - Use `opencv-python-headless` for cloud
         
-        **"Running but no video"**
-        - ✅ Check if detector initialized
-        - ✅ Click Start button
-        - ✅ Wait a few seconds
-        - ✅ Check browser console for errors
+        **"Model not found"**
+        - Ensure model file is in repository
+        - Use .onnx format for smaller size
         
-        **"Slow/Laggy video"**
-        - ✅ Increase Frame Skip (sidebar)
-        - ✅ Use lower resolution in DroidCam
-        - ✅ Better WiFi signal
-        - ✅ Close other applications
-        
-        **"No detections"**
-        - ✅ Ensure person clearly visible
-        - ✅ Lower confidence threshold
-        - ✅ Better lighting
-        - ✅ Check model file exists
+        **"Slow processing"**
+        - Increase Frame Skip
+        - Use smaller video files
+        - Reduce confidence threshold
         """)
     
-    st.subheader("📱 Camera Index Guide")
-    col1, col2, col3 = st.columns(3)
+    st.subheader("📱 About This Project")
+    st.markdown("""
+    **Fall Detection AI System**
     
-    with col1:
-        st.info("""
-        **Index 0**
-        - Built-in webcam
-        - Default camera
-        """)
+    - **Framework:** YOLOv8 Object Detection
+    - **Interface:** Streamlit Web Application
+    - **Deployment:** Streamlit Cloud / Hugging Face
+    - **Purpose:** University Final Project
     
-    with col2:
-        st.info("""
-        **Index 1**
-        - DroidCam USB (common)
-        - External camera
-        """)
-    
-    with col3:
-        st.info("""
-        **Index 2**
-        - DroidCam USB (alt)
-        - Second external camera
-        """)
+    **Features:**
+    - Real-time fall detection
+    - Multiple input sources
+    - Analytics dashboard
+    - Alert system
+    """)
 
 # ============================================
 # FOOTER
@@ -685,7 +539,7 @@ with tab3:
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #666; padding: 20px;">
-    <p>Fall Detection System v2.0 • Powered by YOLOv8 & Streamlit</p>
-    <p style="font-size: 0.8rem;">Press Stop button to end detection • Check sidebar for settings</p>
+    <p>🎓 Fall Detection System • University Project</p>
+    <p style="font-size: 0.9rem;">Deployed on Streamlit Cloud • Powered by YOLOv8</p>
 </div>
 """, unsafe_allow_html=True)
