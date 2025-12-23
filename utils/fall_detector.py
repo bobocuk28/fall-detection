@@ -189,3 +189,28 @@ class FallDetector:
         self.fps_frames = 0
         self.last_fps_time = time.time()
         print("✅ Statistics reset")
+    
+    def get_statistics(self):
+        """
+        Get model statistics and information.
+        
+        Returns:
+            dict: Dictionary containing model statistics
+        """
+        try:
+            stats = {
+                'model_name': self.model_path.split('/')[-1],
+                'confidence_threshold': self.conf_threshold,
+                'input_size': self.model.args.get('imgsz', 640),
+                'num_classes': len(self.model.names) if hasattr(self.model, 'names') else 0,
+                'classes': list(self.model.names.values()) if hasattr(self.model, 'names') else [],
+                'model_type': type(self.model).__name__,
+            }
+            return stats
+        except Exception as e:
+            return {
+                'model_name': self.model_path,
+                'confidence_threshold': self.conf_threshold,
+                'error': str(e)
+            }
+        
