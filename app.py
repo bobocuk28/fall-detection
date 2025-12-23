@@ -1,3 +1,7 @@
+# ============================================
+# IMPORTS - HARUS DI ATAS
+# ============================================
+import streamlit as st
 import pandas as pd
 import os
 import time
@@ -7,50 +11,6 @@ import cv2
 import numpy as np
 import io
 
-# ============================================
-# IMPORT DENGAN ERROR HANDLING YANG LEBIH BAIK
-# ============================================
-def safe_import():
-    try:
-        from utils.fall_detector import FallDetector
-        return FallDetector, True
-    except ImportError as e:
-        st.error(f"❌ Critical Import Error: {e}")
-        st.warning("""
-        **Possible fixes:**
-        1. Ensure `utils/` folder exists with `fall_detector.py`
-        2. Check if `ultralytics` is in requirements.txt
-        3. Try restarting the app
-        """)
-        
-        # Show detailed traceback for debugging
-        with st.expander("🔍 Show Detailed Error"):
-            st.code(traceback.format_exc())
-        
-        # Create a dummy FallDetector class for demo mode
-        class DummyDetector:
-            def __init__(self, model_path=None, conf_threshold=0.5):
-                self.model_path = model_path
-                self.conf_threshold = conf_threshold
-                self.total_frames = 0
-                self.fall_detections = 0
-                self.normal_detections = 0
-            
-            def detect(self, frame):
-                self.total_frames += 1
-                # Return dummy data for demo
-                return frame, [], False
-            
-            def get_statistics(self):
-                return {
-                    'total_frames': self.total_frames,
-                    'fall_detections': self.fall_detections,
-                    'normal_detections': self.normal_detections
-                }
-        
-        return DummyDetector, False
-
-FallDetector, import_success = safe_import()
 
 # ============================================
 # PAGE CONFIGURATION
@@ -155,82 +115,79 @@ if 'debug_mode' not in st.session_state:
 # SIDEBAR - DENGAN ERROR HANDLING
 # ============================================
 with st.sidebar:
-    st.markdown("<div class='main-title'>⚙️ SETTINGS</div>", unsafe_allow_html=True)
+    st.title("⚙️ SETTINGS")
     
-    # Debug toggle
-    st.session_state.debug_mode = st.checkbox("🔧 Debug Mode", value=False)
+    # Debug Mode
+    st.session_state.debug_mode = st.checkbox("Debug Mode", value=False)
     
-    st.subheader("🤖 Model Status")
+    st.markdown("---")
+    st.subheader("Model Status")
     
+    # Check if model exists
     model_path = "best_fall_model.pt"
-    model_exists = os.path.exists(model_path)
-    
-    if model_exists:
-        file_size = os.path.getsize(model_path) / (1024*1024)
-        
-        col_status, col_size = st.columns(2)
-        with col_status:
-            st.success("✅ Found")
-        with col_size:
-            st.metric("Size", f"{file_size:.1f} MB")
+    if os.path.exists(model_path):
+        size_mb = os.path.getsize(model_path) / (1024 * 1024)
+        st.success(f"✅ Model Found")
+        st.info(f"Size: {size_mb:.1f} MB")
     else:
         st.error("❌ Model not found!")
-        st.info(f"Expected at: `{os.path.abspath(model_path)}`")
-        
-        # Option to use demo mode
-        if st.button("🔄 Use Demo Mode", key="demo_mode"):
-            st.session_state.detector = FallDetector(model_path="demo", conf_threshold=0.5)
-            st.session_state.model_loaded = True
-            st.success("Demo mode activated!")
-            st.rerun()
+        st.info(f"Expected: `{model_path}`")
     
-    if model_exists or st.session_state.get('demo_mode', False):
-        confidence = st.slider("Confidence Threshold", 0.1, 1.0, 0.5, 0.05)
-        
-        col_load, col_check = st.columns(2)
-        
-        with col_load:
-            if st.button("🚀 Load Model", type="primary", use_container_width=True):
-                try:
-                    with st.spinner("Loading AI model..."):
-                        detector = FallDetector(
-                            model_path=model_path if model_exists else None,
-                            conf_threshold=confidence
-                        )
-                        st.session_state.detector = detector
-                        st.session_state.model_loaded = True
-                    
-                    st.success("✅ AI Model Loaded!")
-                    st.balloons()
-                except Exception as e:
-                    st.error(f"❌ Load failed: {str(e)[:100]}...")
-                    if st.session_state.debug_mode:
-                        with st.expander("Error Details"):
-                            st.code(traceback.format_exc())
-        
-        with col_check:
-            if st.button("🔍 Test Model", use_container_width=True):
-                if st.session_state.detector:
-                    # Create a test image
-                    test_img = np.zeros((300, 400, 3), dtype=np.uint8)
-                    cv2.putText(test_img, "TEST", (150, 150), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-                    
-                    try:
-                        result, detections, alert = st.session_state.detector.detect(test_img)
-                        st.success(f"✅ Model test passed! Detections: {len(detections)}")
-                    except Exception as e:
-                        st.error(f"❌ Model test failed: {e}")
+    # Confidence Threshold
+    st.markdown("---")
+    st.subheader("Confidence Threshold")
+    st.session_state.confidence_threshold = st.slider(
+        "Detection Threshold",
+        min_value=0.0,
+        max_value=1.0,
+        value=0.5,
+        step=0.05,
+        help="Higher = fewer but more confident detections"
+    )
+    
+    # Load Model Button
+    st.markdown("---")
+    if st.button("🚀 Load Model", use_container_width=True):
+        with st.spinner("Loading model..."):
+            try:
+                # Import your detector here
+                from detector import FallDetector
+                st.session_state.detector = FallDetector(
+                    model_path=model_path,
+                    conf_threshold=st.session_state.confidence_threshold
+                )
+                st.session_state.model_loaded = True
+                st.success("✅ Model loaded successfully!")
+            except Exception as e:
+                st.error(f"❌ Failed to load model: {str(e)[:100]}")
+                if st.session_state.debug_mode:
+                    st.exception(e)
+    
+    # Test Model Button
+    if st.session_state.model_loaded:
+        if st.button("🧪 Test Model", use_container_width=True, type="secondary"):
+            try:
+                # Test with sample image
+                test_image = np.zeros((300, 300, 3), dtype=np.uint8)
+                result, detections, alert = st.session_state.detector.detect(test_image)
+                st.success(f"✅ Model test successful!")
+                st.info(f"Test detection: {len(detections) if detections else 0} objects")
+            except Exception as e:
+                st.error(f"❌ Model test failed: {str(e)[:100]}")
 
     
 # ============================================
-# MAIN CONTENT
+# MAIN PAGE TITLE
 # ============================================
-st.markdown("<div class='main-title'>🚨 FALL DETECTION SYSTEM</div>", unsafe_allow_html=True)
-st.markdown("<div class='sub-title'>AI-powered fall detection for images and videos</div>", unsafe_allow_html=True)
+st.title("🚨 FALL DETECTION SYSTEM")
+st.markdown("AI-powered fall detection for images and videos")
+st.markdown("---")
 
-# Create tabs
-tab1, tab2, tab3 = st.tabs(["🎯 Detection", "📊 Results", "📋 Instructions"])
+
+# ============================================
+# CREATE TABS
+# ============================================
+tab1, tab2, tab3 = st.tabs(["🎯 Detection", "📊 Results", "📖 Instructions"])
 
 # ============================================
 # TAB 1: DETECTION - DIPERBAIKI
@@ -254,6 +211,17 @@ with tab1:
         horizontal=True
     )
     
+    # Kode Anda dimulai dari sini:
+    if not st.session_state.get('model_loaded', False):
+        st.warning("⚠️ Please load the model from the sidebar first!")
+        st.info("""
+        **Steps:**
+        1. 👈 Check if `best_fall_model.pt` exists
+        2. Adjust confidence threshold if needed
+        3. Click '🚀 Load Model'
+        """)
+        st.stop()
+
     if media_type == "📷 Image":
         # ============================================
         # IMAGE DETECTION - FIXED VERSION
@@ -731,6 +699,52 @@ with tab3:
     - Processes images and videos
     - Stores results in session
     """)
+
+# ============================================
+# IMPORT DENGAN ERROR HANDLING YANG LEBIH BAIK
+# ============================================
+def safe_import():
+    try:
+        from utils.fall_detector import FallDetector
+        return FallDetector, True
+    except ImportError as e:
+        st.error(f"❌ Critical Import Error: {e}")
+        st.warning("""
+        **Possible fixes:**
+        1. Ensure `utils/` folder exists with `fall_detector.py`
+        2. Check if `ultralytics` is in requirements.txt
+        3. Try restarting the app
+        """)
+        
+        # Show detailed traceback for debugging
+        with st.expander("🔍 Show Detailed Error"):
+            st.code(traceback.format_exc())
+        
+        # Create a dummy FallDetector class for demo mode
+        class DummyDetector:
+            def __init__(self, model_path=None, conf_threshold=0.5):
+                self.model_path = model_path
+                self.conf_threshold = conf_threshold
+                self.total_frames = 0
+                self.fall_detections = 0
+                self.normal_detections = 0
+            
+            def detect(self, frame):
+                self.total_frames += 1
+                # Return dummy data for demo
+                return frame, [], False
+            
+            def get_statistics(self):
+                return {
+                    'total_frames': self.total_frames,
+                    'fall_detections': self.fall_detections,
+                    'normal_detections': self.normal_detections
+                }
+        
+        return DummyDetector, False
+
+FallDetector, import_success = safe_import()
+
 
 # ============================================
 # FOOTER
